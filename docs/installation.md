@@ -1,24 +1,31 @@
 # Installation Guide
 
-This project is designed to be installed once at the user level and then work from any repository.
+Install `peer-agent` once at the user level, then use it from any repository.
 
-It does not depend on the application stack in the target repository. The bridge talks to the `claude` and `codex` CLIs, not to a specific application runtime.
+The bridge talks to the `claude` and `codex` CLIs. It does not depend on the application stack in the repository you are working on.
 
-## Recommended install path today
+## Recommended install path
 
 ```bash
-git clone <your-repo-url> peer-agent
+git clone https://github.com/renlon/peer-agent.git
 cd peer-agent
 ./install.sh
 peer-agent-doctor
 ```
 
-What `./install.sh` does:
+## What `./install.sh` does
 
 1. Copies prompts, scripts, docs, and bundled skill assets into `${PEER_AGENT_HOME:-~/.local/share/peer-agent}`.
 2. Symlinks `ask-claude`, `ask-codex`, `peer-debate`, and `peer-agent-doctor` into `${PEER_AGENT_BIN_DIR:-~/.local/bin}`.
 3. Installs the personal Codex skill under `~/.codex/skills/peer-agent/`.
 4. Installs the personal Claude Code skill under `~/.claude/skills/peer-agent/`.
+
+Installed commands:
+
+- `ask-claude`: asks Claude Code to `review`, `patch`, or `edit` one file
+- `ask-codex`: asks Codex to `review`, `patch`, or `edit` one file
+- `peer-debate`: runs both agents against the same file in alternating rounds, with an optional judge pass
+- `peer-agent-doctor`: checks the install and confirms the required CLIs, flags, and skill files are available
 
 ## Prerequisites
 
@@ -34,7 +41,7 @@ You are responsible for setting up those underlying tools yourself. `peer-agent`
 - project-specific toolchains such as Xcode or Xcode Command Line Tools
 - repository-specific credentials, SDKs, or cloud logins
 
-Validated locally during extraction:
+Validated locally:
 
 - Claude Code `2.1.81`
 - Codex CLI `0.116.0`
@@ -49,18 +56,18 @@ That means the current repo is:
 - likely portable to Linux with the same directory conventions
 - not a native Windows install flow
 
-It is also shell-compatible rather than Bash-specific. The script uses `/usr/bin/env sh`, so it does not require Bash or Zsh specifically as long as the environment provides a standard POSIX-style shell.
+The script uses `/usr/bin/env sh`, so it does not require Bash or Zsh specifically as long as the environment provides a standard POSIX-style shell.
 
-## Why the installer is the primary distribution path
+## Why `install.sh` matters
 
-Natural-language invocation in Claude Code and Codex depends on the skill files being installed into each tool's personal skill directory.
+Natural-language use inside Codex and Claude Code depends on the skill files being installed into each tool's personal skill directory.
 
 That means setup is two-part:
 
 1. install the command-line helpers
 2. install the skill definitions
 
-`./install.sh` already does both in one step, which is why it should remain the main onboarding path.
+`./install.sh` already does both in one step. After that, the normal way to use `peer-agent` is from inside Codex or Claude Code, not by memorizing the helper commands.
 
 ## Verification
 
@@ -84,5 +91,7 @@ If `peer-agent-doctor` says the bin directory is not on `PATH`, add it in your s
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+If Codex or Claude Code does not notice the new `peer-agent` skill right away, start a new session after running `./install.sh`.
 
 If the doctor reports a missing skill, rerun `./install.sh`.

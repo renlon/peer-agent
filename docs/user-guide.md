@@ -2,7 +2,7 @@
 
 The goal is simple:
 
-After installation, a user should be able to speak naturally inside either Codex or Claude Code and ask the other agent to review, patch, edit, judge, or debate a file.
+After installation, a user should be able to speak naturally inside either Codex or Claude Code and ask the other agent to review, patch, edit, or debate a file, with an optional judge at the end of a debate.
 
 This assumes the user has already installed and authenticated the underlying agent CLIs, and has already installed any project-specific development tools their repository needs.
 
@@ -19,7 +19,7 @@ The most reliable trigger style is explicit intent:
 
 - "Ask Claude to review `src/auth.ts`."
 - "Have Claude debate this change with you."
-- "Ask Claude to judge the disagreement."
+- "Debate this file with Claude and include a judge."
 
 The installed Codex skill maps those requests to the helper commands:
 
@@ -37,37 +37,22 @@ The installed Claude skill maps those requests to:
 - `ask-codex`
 - `peer-debate`
 
-## Direct command usage
+## What the installed commands do
 
-You can also invoke the helpers directly:
+- `ask-claude`: asks Claude Code to work on one file in `review`, `patch`, or `edit` mode
+- `ask-codex`: asks Codex to work on one file in `review`, `patch`, or `edit` mode
+- `peer-debate`: has both agents take turns on one file and can optionally add a judge pass
+- `peer-agent-doctor`: verifies that the install, skill files, and expected CLI flags are present
 
-```bash
-ask-claude review src/auth.ts "focus on correctness and tests"
-ask-codex patch src/server.ts "propose the smallest safe fix"
-peer-debate src/server.ts "debate whether this retry logic is safe" --judge
-```
+Those commands are the backend. The primary user experience is still the natural-language skill path inside Codex and Claude Code.
 
-## Supported actions
+## Supported requests
 
-### `review`
-
-Use when you want findings, risks, and suggested changes only.
-
-### `patch`
-
-Use when you want a proposed diff without applying it.
-
-### `edit`
-
-Use when you explicitly want the peer agent to modify the target file.
-
-### `debate`
-
-Use when you want both agents to take turns evaluating the same file.
-
-### `judge`
-
-Use when you want a final ruling after disagreement.
+- `review`: use when you want findings, risks, and suggested changes only
+- `patch`: use when you want a proposed diff without applying it
+- `edit`: use when you explicitly want the peer agent to modify the target file
+- `debate`: use when you want both agents to take turns evaluating the same file
+- `judge`: ask for a final ruling as part of the debate request
 
 ## What "natural language" actually means here
 
@@ -78,6 +63,8 @@ This project does not do its own natural-language parsing. Instead, it installs 
 - what defaults to use for review versus patch versus debate
 
 So the natural-language experience depends on the skills being installed correctly, not just the binaries existing on `PATH`.
+
+If you need the low-level shell forms for automation or troubleshooting, see [Usage Guide](usage.md).
 
 ## Current limits
 

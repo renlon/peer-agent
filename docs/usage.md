@@ -1,8 +1,49 @@
-# Peer-Agent Usage
+# Usage Guide
 
-`peer-agent` is a small cross-CLI bridge for Codex and Claude Code. It gives each tool a thin wrapper for asking the other to review, patch, edit, or debate a single file.
+`peer-agent` is usually used from inside Codex or Claude Code through the installed `peer-agent` skill.
 
-The install flow places mutable state under `${PEER_AGENT_HOME:-~/.local/share/peer-agent}` and exposes four commands on `PATH`:
+After installation, the normal workflow is:
+
+1. Open your repository in Codex or Claude Code.
+2. Ask for cross-agent help in natural language.
+3. Let the installed skill translate that request into the helper command.
+
+## Natural-language examples
+
+From Codex:
+
+- "Ask Claude to review `src/auth.ts` and focus on correctness."
+- "Ask Claude to patch `src/server.ts` with the smallest safe change."
+- "Debate `src/retry.py` with Claude and include a judge."
+
+From Claude Code:
+
+- "Ask Codex to review `src/auth.ts` and look for regressions."
+- "Have Codex edit `src/server.ts` directly."
+- "Debate this file with Codex and include a judge."
+
+## Installed commands
+
+The install flow places four helper commands on `PATH` under `${PEER_AGENT_BIN_DIR:-~/.local/bin}`:
+
+- `ask-claude`: backend helper that asks Claude Code to `review`, `patch`, or `edit` one target file
+- `ask-codex`: backend helper that asks Codex to `review`, `patch`, or `edit` one target file
+- `peer-debate`: backend helper that alternates between Claude Code and Codex for a structured debate about one target file
+- `peer-agent-doctor`: verification helper that checks the install, skills, and expected CLI features
+
+You normally do not need to run these directly. They are most useful for debugging, automation, or understanding what the installed skill is doing under the hood.
+
+## Supported requests
+
+- `review`: return findings, risks, and suggested changes only
+- `patch`: return a proposed patch without applying it
+- `edit`: let the peer CLI modify the target file directly
+- `debate`: have both agents take turns evaluating the same file
+- `judge`: ask for a final ruling as part of a debate request; it is not a standalone helper command
+
+## Direct command reference
+
+If you do need the low-level helpers directly, these are the main forms:
 
 ```bash
 ask-claude review "/absolute/or/relative/path/to/file" "focus on correctness and tests"
@@ -20,7 +61,7 @@ peer-agent-doctor
 ## Behavior
 
 - Relative paths are resolved against the current working directory unless `--cwd` is provided.
-- Prefer quoted absolute paths when invoking the helpers from another agent session.
+- Prefer quoted absolute paths when invoking the helpers manually from another agent session.
 - `review` returns Markdown findings only.
 - `patch` returns proposed patch text only, preferably as a unified diff.
 - `edit` allows the peer CLI to update only the specified target file unless the instruction explicitly widens scope.
