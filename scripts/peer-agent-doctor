@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import os
+from pathlib import Path
+
+from peer_agent_common import data_dir, resource_dir
+
+
+def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def _status(ok: bool, label: str, detail: str) -> tuple[bool, str]:
+    prefix = "OK" if ok else "FAIL"
+    return ok, f"[{prefix}] {label}: {detail}"
+
+
+def _check_binary(name: str) -> tuple[bool, str]:
+    path = shutil.which(name)
+    if path is None:
+        return _status(False, name, "not found on PATH")
+    version = _run([name, "--version"])
+    detail = version.stdout.strip() or path
+    return _status(version.returncode == 0, name, detail)
+
+
+def _check_claude_flags() -> tuple[bool, str]:
+    help_result = _run(["claude", "--help"])
+    help_text = help_result.stdout + help_result.stderr
+    required = [
+        "--output-format",
+        "--permission-mode",
+        "--session-id",
+        "--input-format",
+        "--no-session-persistence",
+        "-p, --print",
+    ]
+    missing = [flag for flag in required if flag not in help_text]
+    if missing:
+        return _status(False, "claude flags", f"missing {', '.join(missing)}")
+    return _status(True, "claude flags", "required non-interactive flags are available")
+
+
+def _check_codex_flags() -> tuple[bool, str]:
+    help_result = _run(["codex", "exec", "--help"])
+    help_text = help_result.stdout + help_result.stderr
+    required = ["--output-last-message", "--skip-git-repo-check", "--ephemeral", "-C, --cd"]
+    missing = [flag for flag in required if flag not in help_text]
+    if missing:
+        return _status(False, "codex flags", f"missing {', '.join(missing)}")
+    return _status(True, "codex flags", "required exec flags are available")
+
+
+def _check_file(path: Path, label: str) -> tuple[bool, str]:
+    if path.exists():
+        return _status(True, label, str(path))
+    return _status(False, label, f"missing: {path}")
+
+
+def main() -> int:
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+    claude_home = Path(os.environ.get("CLAUDE_HOME", Path.home() / ".claude")).expanduser()
+    checks: list[tuple[bool, str]] = []
+    checks.append(_status(True, "resources", str(resource_dir())))
+    checks.append(_status(True, "artifacts", str(data_dir() / "artifacts")))
+    checks.append(_check_binary("claude"))
+    checks.append(_check_binary("codex"))
+
+    if shutil.which("claude") is not None:
+        checks.append(_check_claude_flags())
+    if shutil.which("codex") is not None:
+        checks.append(_check_codex_flags())
+
+    checks.append(
+        _check_file(
+            codex_home / "skills" / "peer-agent" / "SKILL.md",
+            "codex skill",
+        )
+    )
+    checks.append(
+        _check_file(
+            claude_home / "skills" / "peer-agent" / "SKILL.md",
+            "claude skill",
+        )
+    )
+
+    exit_code = 0
+    for ok, line in checks:
+        sys.stdout.write(line + "\n")
+        if not ok:
+            exit_code = 1
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

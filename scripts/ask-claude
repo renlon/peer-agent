@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import shutil
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from peer_agent_common import (
+    artifact_path,
+    artifact_metadata,
+    capture_target_snapshot,
+    choose_exec_cwd,
+    fail_with_log,
+    parse_args,
+    render_prompt,
+    resolve_target,
+    run_with_input,
+    write_artifact,
+    write_artifact_metadata,
+)
+
+
+def main() -> int:
+    if shutil.which("claude") is None:
+        sys.stderr.write("claude is not available on PATH\n")
+        return 127
+
+    args = parse_args("claude")
+    requested_cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    try:
+        target = resolve_target(args.target, requested_cwd)
+    except (FileNotFoundError, ValueError) as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    snapshot = capture_target_snapshot(target)
+    instruction = " ".join(args.instruction).strip()
+    prompt = render_prompt(args.action, "codex", requested_cwd, target, instruction, snapshot)
+    exec_cwd = choose_exec_cwd(args.action, requested_cwd, target)
+
+    command = [
+        "claude",
+        "-p",
+        "--output-format",
+        "text",
+        "--input-format",
+        "text",
+        "--no-session-persistence",
+    ]
+    if args.action == "edit":
+        command += ["--permission-mode", "acceptEdits"]
+
+    result = run_with_input(command, cwd=exec_cwd, stdin_text=prompt)
+    if result.returncode != 0:
+        return fail_with_log(
+            peer="claude",
+            action=args.action,
+            target=target,
+            snapshot=snapshot,
+            requested_cwd=requested_cwd,
+            exec_cwd=exec_cwd,
+            command=command,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
+
+    if not args.no_save:
+        path = artifact_path(args.action, "claude", target, snapshot)
+        write_artifact(path, result.stdout)
+        write_artifact_metadata(
+            path,
+            artifact_metadata(
+                peer="claude",
+                action=args.action,
+                target=target,
+                snapshot=snapshot,
+                requested_cwd=requested_cwd,
+                exec_cwd=exec_cwd,
+            ),
+        )
+
+    sys.stdout.write(result.stdout)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

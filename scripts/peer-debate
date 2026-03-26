@@ -1,0 +1,414 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shutil
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from peer_agent_common import (
+    TargetSnapshot,
+    artifact_metadata,
+    capture_target_snapshot,
+    choose_exec_cwd,
+    data_dir,
+    render_prompt,
+    resolve_target,
+    run_with_input,
+    write_artifact,
+    write_artifact_metadata,
+)
+
+
+def parse_debate_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="peer-debate",
+        description="Run a structured debate between Claude Code and Codex.",
+    )
+    parser.add_argument("target", help="Target file to debate about.")
+    parser.add_argument(
+        "instruction",
+        nargs="*",
+        help="Debate topic or instruction.",
+    )
+    parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=3,
+        help="Maximum debate rounds (default: 3, range: 1-10).",
+    )
+    parser.add_argument(
+        "--first-speaker",
+        choices=["claude", "codex"],
+        default="claude",
+        help="Who speaks first (default: claude).",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["review", "patch"],
+        default="review",
+        help="Debate mode (default: review).",
+    )
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="Run a judge pass after the debate concludes.",
+    )
+    parser.add_argument(
+        "--judge-agent",
+        choices=["claude", "codex"],
+        default=None,
+        help="Agent for judge (default: opposite of last speaker).",
+    )
+    parser.add_argument(
+        "--cwd",
+        default=None,
+        help="Working directory context.",
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Do not persist artifacts.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Only print the final transcript.",
+    )
+    args = parser.parse_args()
+    args.max_rounds = max(1, min(10, args.max_rounds))
+    return args
+
+
+def invoke_agent(agent: str, prompt: str, exec_cwd: Path) -> tuple[int, str]:
+    """Invoke a single agent and return (returncode, output_text)."""
+    if agent == "codex":
+        with tempfile.NamedTemporaryFile(
+            prefix="debate-codex-", suffix=".txt", delete=False
+        ) as tmp:
+            output_path = Path(tmp.name)
+        command = [
+            "codex",
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-C",
+            str(exec_cwd),
+            "-o",
+            str(output_path),
+            "-s",
+            "read-only",
+            "-",
+        ]
+        result = run_with_input(command, cwd=exec_cwd, stdin_text=prompt)
+        text = (
+            output_path.read_text(encoding="utf-8", errors="replace")
+            if output_path.exists()
+            else ""
+        )
+        output_path.unlink(missing_ok=True)
+        return result.returncode, text or result.stdout
+    else:
+        command = [
+            "claude",
+            "-p",
+            "--output-format",
+            "text",
+            "--input-format",
+            "text",
+            "--no-session-persistence",
+        ]
+        result = run_with_input(command, cwd=exec_cwd, stdin_text=prompt)
+        return result.returncode, result.stdout
+
+
+def detect_verdict(response: str) -> str | None:
+    """Parse the last 5 lines for VERDICT: AGREE or VERDICT: DISAGREE."""
+    lines = response.strip().splitlines()[-5:]
+    for line in reversed(lines):
+        match = re.search(r"VERDICT:\s*(AGREE|DISAGREE)", line, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def build_round_prompt(
+    agent: str,
+    opponent: str,
+    round_num: int,
+    max_rounds: int,
+    mode: str,
+    cwd: Path,
+    target: Path,
+    instruction: str,
+    snapshot: TargetSnapshot,
+    debate_history: str,
+) -> str:
+    return render_prompt(
+        "debate",
+        agent,
+        cwd,
+        target,
+        instruction,
+        snapshot,
+        extra_replacements={
+            "{{AGENT_NAME}}": agent,
+            "{{OPPONENT_NAME}}": opponent,
+            "{{ROUND_NUMBER}}": str(round_num),
+            "{{MAX_ROUNDS}}": str(max_rounds),
+            "{{DEBATE_MODE}}": mode,
+            "{{DEBATE_HISTORY}}": debate_history or "(none -- you are opening the debate)",
+        },
+    )
+
+
+def build_judge_prompt(
+    agent_a: str,
+    agent_b: str,
+    mode: str,
+    cwd: Path,
+    target: Path,
+    instruction: str,
+    snapshot: TargetSnapshot,
+    debate_history: str,
+) -> str:
+    return render_prompt(
+        "judge",
+        "judge",
+        cwd,
+        target,
+        instruction,
+        snapshot,
+        extra_replacements={
+            "{{AGENT_A}}": agent_a,
+            "{{AGENT_B}}": agent_b,
+            "{{DEBATE_MODE}}": mode,
+            "{{DEBATE_HISTORY}}": debate_history,
+        },
+    )
+
+
+def format_transcript(
+    rounds: list[dict],
+    consensus: bool,
+    judge_output: str | None = None,
+    judge_agent: str | None = None,
+) -> str:
+    parts = ["# Peer Debate Transcript\n"]
+    for r in rounds:
+        verdict_tag = f" [VERDICT: {r['verdict']}]" if r["verdict"] else ""
+        parts.append(f"## Round {r['round']} -- {r['agent']}{verdict_tag}\n")
+        parts.append(r["response"].strip())
+        parts.append("")
+    if consensus:
+        parts.append("---\n*Consensus reached.*\n")
+    else:
+        parts.append("---\n*Max rounds reached without full consensus.*\n")
+    if judge_output:
+        parts.append(f"## Judge Ruling ({judge_agent})\n")
+        parts.append(judge_output.strip())
+        parts.append("")
+    return "\n".join(parts)
+
+
+def _format_utc(dt: datetime) -> str:
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def save_debate_artifact(
+    target: Path,
+    snapshot: TargetSnapshot,
+    transcript: str,
+    debate_config: dict,
+    requested_cwd: Path,
+    exec_cwd: Path,
+) -> Path:
+    directory = data_dir() / "artifacts" / "debates"
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_name = target.name.replace("/", "_")
+    path = directory / (
+        f"{snapshot.launch_id}-debate-{safe_name}"
+        f"-sha{snapshot.target_sha256[:12]}.md"
+    )
+    write_artifact(path, transcript)
+    meta = {
+        **artifact_metadata(
+            peer="debate",
+            action="debate",
+            target=target,
+            snapshot=snapshot,
+            requested_cwd=requested_cwd,
+            exec_cwd=exec_cwd,
+        ),
+        "debate_config": debate_config,
+    }
+    write_artifact_metadata(path, meta)
+    return path
+
+
+def main() -> int:
+    for tool in ("claude", "codex"):
+        if shutil.which(tool) is None:
+            sys.stderr.write(f"{tool} is not available on PATH\n")
+            return 127
+
+    args = parse_debate_args()
+    requested_cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    try:
+        target = resolve_target(args.target, requested_cwd)
+    except (FileNotFoundError, ValueError) as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    snapshot = capture_target_snapshot(target)
+    instruction = " ".join(args.instruction).strip()
+    exec_cwd = choose_exec_cwd("review", requested_cwd, target)
+
+    speakers = (
+        ["claude", "codex"]
+        if args.first_speaker == "claude"
+        else ["codex", "claude"]
+    )
+
+    rounds: list[dict] = []
+    debate_history = ""
+    consensus = False
+    exit_code = 0
+
+    for round_num in range(1, args.max_rounds + 1):
+        agent = speakers[(round_num - 1) % 2]
+        opponent = speakers[round_num % 2]
+
+        prompt = build_round_prompt(
+            agent,
+            opponent,
+            round_num,
+            args.max_rounds,
+            args.mode,
+            exec_cwd,
+            target,
+            instruction,
+            snapshot,
+            debate_history,
+        )
+
+        if not args.quiet:
+            sys.stderr.write(f"\n{'=' * 60}\n")
+            sys.stderr.write(f"Round {round_num}/{args.max_rounds} -- {agent}\n")
+            sys.stderr.write(f"{'=' * 60}\n\n")
+
+        returncode, response = invoke_agent(agent, prompt, exec_cwd)
+        if returncode != 0:
+            exit_code = returncode or 1
+            sys.stderr.write(
+                f"Agent {agent} failed in round {round_num} (exit {returncode})\n"
+            )
+            if response:
+                sys.stderr.write(response)
+            break
+
+        verdict = detect_verdict(response)
+
+        rounds.append(
+            {
+                "round": round_num,
+                "agent": agent,
+                "response": response,
+                "verdict": verdict,
+            }
+        )
+
+        debate_history += f"\n### Round {round_num} -- {agent}\n\n{response}\n"
+
+        if not args.quiet:
+            sys.stdout.write(response)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
+        if verdict == "AGREE" and len(rounds) >= 2:
+            prev_verdict = rounds[-2].get("verdict")
+            if prev_verdict == "AGREE":
+                consensus = True
+                if not args.quiet:
+                    sys.stderr.write("\nConsensus reached.\n")
+                break
+
+    # Optional judge pass
+    judge_output = None
+    judge_agent = None
+    if args.judge and rounds:
+        judge_agent = args.judge_agent or speakers[len(rounds) % 2]
+        judge_prompt = build_judge_prompt(
+            speakers[0],
+            speakers[1],
+            args.mode,
+            exec_cwd,
+            target,
+            instruction,
+            snapshot,
+            debate_history,
+        )
+        if not args.quiet:
+            sys.stderr.write(f"\nJudge pass by {judge_agent}...\n")
+        rc, judge_output = invoke_agent(judge_agent, judge_prompt, exec_cwd)
+        if rc != 0:
+            exit_code = rc or 1
+            sys.stderr.write(f"Judge ({judge_agent}) failed (exit {rc})\n")
+            if judge_output:
+                sys.stderr.write(judge_output)
+            judge_output = None
+        elif not args.quiet:
+            sys.stdout.write(f"\n## Judge Ruling ({judge_agent})\n")
+            sys.stdout.write(judge_output.strip())
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
+    # Format transcript
+    transcript = format_transcript(rounds, consensus, judge_output, judge_agent)
+
+    # Save artifact
+    if not args.no_save and rounds:
+        path = save_debate_artifact(
+            target,
+            snapshot,
+            transcript,
+            {
+                "max_rounds": args.max_rounds,
+                "actual_rounds": len(rounds),
+                "first_speaker": args.first_speaker,
+                "mode": args.mode,
+                "consensus_reached": consensus,
+                "judge_enabled": args.judge,
+                "judge_agent": judge_agent,
+                "rounds": [
+                    {
+                        "round": r["round"],
+                        "agent": r["agent"],
+                        "verdict": r["verdict"],
+                    }
+                    for r in rounds
+                ],
+            },
+            requested_cwd,
+            exec_cwd,
+        )
+        if not args.quiet:
+            sys.stderr.write(f"\nDebate artifact saved to {path}\n")
+
+    # In quiet mode, print the full transcript at the end
+    if args.quiet:
+        sys.stdout.write(transcript)
+
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
