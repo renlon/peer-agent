@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/peer-agent-logo.svg" alt="peer-agent logo" width="720">
+</p>
+
 # peer-agent
 
 `peer-agent` is a small bridge between Codex and Claude Code. After installation, you can ask one agent to review, patch, edit, or debate a file from inside the other.
@@ -54,18 +58,23 @@ More detail:
 - [Usage Guide](docs/usage.md)
 - [User Guide](docs/user-guide.md)
 
-## Example usage
+## Real example
 
-From Codex:
+You are in Codex debugging a billing retry bug. A failed webhook can be replayed, and you want a second opinion before you touch production code.
 
-- "Ask Claude to review `src/auth.ts` and focus on correctness."
-- "Have Claude propose a patch for `src/server.ts`."
-- "Debate `src/retry.py` with Claude and include a judge."
+In Codex:
 
-From Claude Code:
+1. Ask for a focused review:
+   "Ask Claude to review `src/billing/webhook_handler.ts` for duplicate-charge risk, idempotency gaps, and missing tests."
+2. If the review finds a likely bug, ask for a patch:
+   "Have Claude propose the smallest safe patch for `src/billing/webhook_handler.ts`."
+3. If the tradeoff is still unclear, get both agents involved:
+   "Debate `src/billing/webhook_handler.ts` with Claude and include a judge. Focus on whether the retry path can double-credit the account."
 
-- "Ask Codex to review `src/auth.ts` and look for regressions."
-- "Have Codex edit `src/server.ts` to make the smallest safe fix."
+You can use the same workflow in Claude Code:
+
+- "Ask Codex to review `src/billing/webhook_handler.ts` for duplicate-charge risk and missing tests."
+- "Have Codex edit `src/billing/webhook_handler.ts` to make the smallest safe fix."
 - "Debate this file with Codex and include a judge."
 
 The installed skills translate those requests into the helper commands automatically. You usually do not need to run the scripts directly unless you are debugging or automating.

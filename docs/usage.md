@@ -10,16 +10,18 @@ After installation, the normal workflow is:
 
 ## Natural-language examples
 
+One good fit is production-risk code where a second opinion matters before you ship a fix.
+
 From Codex:
 
-- "Ask Claude to review `src/auth.ts` and focus on correctness."
-- "Ask Claude to patch `src/server.ts` with the smallest safe change."
-- "Debate `src/retry.py` with Claude and include a judge."
+- "Ask Claude to review `src/billing/webhook_handler.ts` for duplicate-charge risk, idempotency gaps, and missing tests."
+- "Ask Claude to patch `src/billing/webhook_handler.ts` with the smallest safe change."
+- "Debate `src/billing/webhook_handler.ts` with Claude and include a judge."
 
 From Claude Code:
 
-- "Ask Codex to review `src/auth.ts` and look for regressions."
-- "Have Codex edit `src/server.ts` directly."
+- "Ask Codex to review `src/billing/webhook_handler.ts` for duplicate-charge risk and missing tests."
+- "Have Codex edit `src/billing/webhook_handler.ts` directly."
 - "Debate this file with Codex and include a judge."
 
 ## Installed commands
