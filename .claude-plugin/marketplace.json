@@ -1,0 +1,20 @@
+{
+  "name": "peer-agent",
+  "owner": {
+    "name": "renlon"
+  },
+  "metadata": {
+    "description": "Cross-agent peer review, patching, debate, and consensus workflows between Claude Code and Codex"
+  },
+  "plugins": [
+    {
+      "name": "peer-agent",
+      "source": "./plugins/peer-agent",
+      "description": "Cross-agent peer review, patching, debate, and consensus workflows between Claude Code and Codex",
+      "version": "1.0.0",
+      "author": {
+        "name": "renlon"
+      }
+    }
+  ]
+}
