@@ -1,6 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
+CLI_ONLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --cli-only) CLI_ONLY=true ;;
+  esac
+done
+
 REPO_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 INSTALL_ROOT=${PEER_AGENT_HOME:-"$HOME/.local/share/peer-agent"}
 BIN_DIR=${PEER_AGENT_BIN_DIR:-"$HOME/.local/bin"}
@@ -47,24 +54,28 @@ ln -sfn "$INSTALL_ROOT/scripts/ask-codex" "$BIN_DIR/ask-codex"
 ln -sfn "$INSTALL_ROOT/scripts/peer-debate" "$BIN_DIR/peer-debate"
 ln -sfn "$INSTALL_ROOT/scripts/peer-agent-doctor" "$BIN_DIR/peer-agent-doctor"
 
-for skill_dir in "$REPO_DIR"/skills/claude/*/; do
-  skill_name=$(basename "$skill_dir")
-  install_file \
-    "$skill_dir/SKILL.md" \
-    "$CLAUDE_SKILL_BASE/$skill_name/SKILL.md"
-  echo "Installed Claude skill: $skill_name"
-done
+if [ "$CLI_ONLY" = true ]; then
+  echo "Installed peer-agent CLI tools to $BIN_DIR (--cli-only, skipping skill copy)"
+else
+  for skill_dir in "$REPO_DIR"/skills/claude/*/; do
+    skill_name=$(basename "$skill_dir")
+    install_file \
+      "$skill_dir/SKILL.md" \
+      "$CLAUDE_SKILL_BASE/$skill_name/SKILL.md"
+    echo "Installed Claude skill: $skill_name"
+  done
 
-for skill_dir in "$REPO_DIR"/skills/codex/*/; do
-  skill_name=$(basename "$skill_dir")
-  install_file \
-    "$skill_dir/SKILL.md" \
-    "$CODEX_SKILL_BASE/$skill_name/SKILL.md"
-  echo "Installed Codex skill: $skill_name"
-done
+  for skill_dir in "$REPO_DIR"/skills/codex/*/; do
+    skill_name=$(basename "$skill_dir")
+    install_file \
+      "$skill_dir/SKILL.md" \
+      "$CODEX_SKILL_BASE/$skill_name/SKILL.md"
+    echo "Installed Codex skill: $skill_name"
+  done
 
-echo "Installed peer-agent resources to $INSTALL_ROOT"
-echo "Installed commands to $BIN_DIR"
+  echo "Installed peer-agent resources to $INSTALL_ROOT"
+  echo "Installed commands to $BIN_DIR"
+fi
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
