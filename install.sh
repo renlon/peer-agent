@@ -4,8 +4,8 @@ set -eu
 REPO_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 INSTALL_ROOT=${PEER_AGENT_HOME:-"$HOME/.local/share/peer-agent"}
 BIN_DIR=${PEER_AGENT_BIN_DIR:-"$HOME/.local/bin"}
-CODEX_SKILL_DIR=${CODEX_HOME:-"$HOME/.codex"}/skills/peer-agent
-CLAUDE_SKILL_DIR=${CLAUDE_HOME:-"$HOME/.claude"}/skills/peer-agent
+CODEX_SKILL_BASE=${CODEX_HOME:-"$HOME/.codex"}/skills
+CLAUDE_SKILL_BASE=${CLAUDE_HOME:-"$HOME/.claude"}/skills
 
 copy_tree() {
   src=$1
@@ -47,17 +47,24 @@ ln -sfn "$INSTALL_ROOT/scripts/ask-codex" "$BIN_DIR/ask-codex"
 ln -sfn "$INSTALL_ROOT/scripts/peer-debate" "$BIN_DIR/peer-debate"
 ln -sfn "$INSTALL_ROOT/scripts/peer-agent-doctor" "$BIN_DIR/peer-agent-doctor"
 
-install_file \
-  "$REPO_DIR/skills/codex/peer-agent/SKILL.md" \
-  "$CODEX_SKILL_DIR/SKILL.md"
-install_file \
-  "$REPO_DIR/skills/claude/peer-agent/SKILL.md" \
-  "$CLAUDE_SKILL_DIR/SKILL.md"
+for skill_dir in "$REPO_DIR"/skills/claude/*/; do
+  skill_name=$(basename "$skill_dir")
+  install_file \
+    "$skill_dir/SKILL.md" \
+    "$CLAUDE_SKILL_BASE/$skill_name/SKILL.md"
+  echo "Installed Claude skill: $skill_name"
+done
+
+for skill_dir in "$REPO_DIR"/skills/codex/*/; do
+  skill_name=$(basename "$skill_dir")
+  install_file \
+    "$skill_dir/SKILL.md" \
+    "$CODEX_SKILL_BASE/$skill_name/SKILL.md"
+  echo "Installed Codex skill: $skill_name"
+done
 
 echo "Installed peer-agent resources to $INSTALL_ROOT"
 echo "Installed commands to $BIN_DIR"
-echo "Installed Codex skill to $CODEX_SKILL_DIR"
-echo "Installed Claude skill to $CLAUDE_SKILL_DIR"
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;

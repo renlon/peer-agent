@@ -1,0 +1,12 @@
+{
+  "name": "peer-agent",
+  "version": "1.0.0",
+  "description": "Cross-agent peer review, patching, debate, and consensus workflows between Claude Code and Codex",
+  "author": {
+    "name": "renlon"
+  },
+  "homepage": "https://github.com/renlon/peer-agent",
+  "repository": "https://github.com/renlon/peer-agent",
+  "license": "MIT",
+  "keywords": ["peer-review", "codex", "debate", "consensus", "code-review"]
+}
